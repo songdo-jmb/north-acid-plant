@@ -5,12 +5,12 @@ import unicodedata
 import io
 
 import plotly.express as px
-from plotly.subplots import make_subplots
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
-# ===============================
+# ======================================================
 # 기본 설정
-# ===============================
+# ======================================================
 st.set_page_config(
     page_title="EC값에 따른 상하부 길이의 성장률 차이",
     layout="wide"
@@ -26,14 +26,13 @@ html, body, [class*="css"] {
 </style>
 """, unsafe_allow_html=True)
 
-# ===============================
+# ======================================================
 # 경로 설정
-# ===============================
+# ======================================================
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 IMAGE_DIR = BASE_DIR / "images"
 
-# 학교별 EC 조건
 EC_MAP = {
     "송도고": 1.0,
     "하늘고": 2.0,
@@ -41,47 +40,63 @@ EC_MAP = {
     "동산고": 8.0
 }
 
-# ===============================
-# 유니코드 안전 파일 탐색
-# ===============================
-def normalize_name(name: str) -> set:
-    return {
-        unicodedata.normalize("NFC", name),
-        unicodedata.normalize("NFD", name)
-    }
-
-def find_file_by_keyword(directory: Path, keyword: str):
-    keyword_set = normalize_name(keyword)
+# ======================================================
+# 한글 파일명 안전 탐색 함수 (최종 안정판)
+# ======================================================
+def find_file_containing(directory: Path, keywords: list, suffix: str):
     for p in directory.iterdir():
         if not p.is_file():
             continue
-        name_set = normalize_name(p.name)
-        if keyword_set & name_set:
+
+        if not p.name.lower().endswith(suffix):
+            continue
+
+        name_nfc = unicodedata.normalize("NFC", p.name)
+        name_nfd = unicodedata.normalize("NFD", p.name)
+
+        if all(
+            (k in name_nfc) or (k in name_nfd)
+            for k in keywords
+        ):
             return p
+
     return None
 
-# ===============================
+# ======================================================
 # 데이터 로딩
-# ===============================
+# ======================================================
 @st.cache_data
 def load_environment_data():
     data = {}
+
     for school in EC_MAP.keys():
-        file_path = find_file_by_keyword(DATA_DIR, f"{school}_환경데이터")
+        file_path = find_file_containing(
+            DATA_DIR,
+            keywords=[school, "환경데이터"],
+            suffix=".csv"
+        )
+
         if file_path is None:
             continue
+
         df = pd.read_csv(file_path)
         df["학교"] = school
         data[school] = df
+
     return data
 
 @st.cache_data
 def load_growth_data():
-    xlsx = find_file_by_keyword(DATA_DIR, "생육결과")
-    if xlsx is None:
+    xlsx_path = find_file_containing(
+        DATA_DIR,
+        keywords=["생육결과"],
+        suffix=".xlsx"
+    )
+
+    if xlsx_path is None:
         return None
 
-    sheets = pd.read_excel(xlsx, sheet_name=None)
+    sheets = pd.read_excel(xlsx_path, sheet_name=None)
     result = []
 
     for sheet_name, df in sheets.items():
@@ -95,50 +110,58 @@ def load_growth_data():
 def load_images():
     if not IMAGE_DIR.exists():
         return []
-    images = []
+
+    imgs = []
     for p in IMAGE_DIR.iterdir():
         if p.suffix.lower() in [".png", ".jpg", ".jpeg"]:
-            images.append(p)
-    return images
+            imgs.append(p)
 
-# ===============================
+    return imgs
+
+# ======================================================
 # 데이터 로딩 UI
-# ===============================
-with st.spinner("데이터 로딩 중..."):
+# ======================================================
+with st.spinner("데이터를 불러오는 중입니다..."):
     env_data = load_environment_data()
     growth_df = load_growth_data()
     image_files = load_images()
 
 if not env_data or growth_df is None:
-    st.error("❌ 데이터 파일을 찾을 수 없습니다. data 폴더를 확인하세요.")
+    st.error("❌ data 폴더에서 필요한 파일을 찾을 수 없습니다.")
     st.stop()
 
-# ===============================
+# ======================================================
 # 사이드바
-# ===============================
+# ======================================================
 st.sidebar.title("학교 선택")
 school_option = st.sidebar.selectbox(
     "학교",
     ["전체"] + list(EC_MAP.keys())
 )
 
-# ===============================
+# 디버깅용 파일 목록 (Cloud 확인용)
+st.sidebar.divider()
+st.sidebar.write("📁 data 폴더 파일:")
+for p in DATA_DIR.iterdir():
+    st.sidebar.write(p.name)
+
+# ======================================================
 # 제목
-# ===============================
+# ======================================================
 st.title("🌱 EC값에 따른 상하부 길이의 성장률 차이")
 
-# ===============================
+# ======================================================
 # 탭 구성
-# ===============================
+# ======================================================
 tab1, tab2, tab3 = st.tabs([
-    "📊 평균 환경 데이터 분석",
+    "📊 평균 환경 데이터",
     "📈 EC값에 따른 성장량",
     "🔬 지상부-지하부 관계"
 ])
 
-# ===============================
+# ======================================================
 # TAB 1
-# ===============================
+# ======================================================
 with tab1:
     st.subheader("학교별 평균 환경 데이터")
 
@@ -155,7 +178,6 @@ with tab1:
     avg_df = pd.DataFrame(rows)
     st.dataframe(avg_df, use_container_width=True)
 
-    # 다운로드
     buffer = io.BytesIO()
     avg_df.to_excel(buffer, index=False, engine="openpyxl")
     buffer.seek(0)
@@ -173,9 +195,9 @@ with tab1:
         for img in image_files:
             st.image(img, caption=img.name, use_container_width=True)
 
-# ===============================
+# ======================================================
 # TAB 2
-# ===============================
+# ======================================================
 with tab2:
     st.subheader("EC값에 따른 성장량 비교")
 
@@ -198,13 +220,13 @@ with tab2:
 
     st.plotly_chart(fig, use_container_width=True)
 
-    st.info("✅ 하늘고(EC 2.0)가 생육 최적 조건으로 관찰됨")
+    st.info("✅ 하늘고 (EC 2.0) 조건에서 생육이 가장 안정적으로 나타남")
 
-# ===============================
+# ======================================================
 # TAB 3
-# ===============================
+# ======================================================
 with tab3:
-    st.subheader("지상부 vs 지하부 성장 관계")
+    st.subheader("지상부 길이 vs 지하부 길이")
 
     fig = make_subplots()
 
