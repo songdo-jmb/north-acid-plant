@@ -16,12 +16,16 @@ st.set_page_config(
     layout="wide"
 )
 
-# 한글 폰트 (CSS)
+# 한글 폰트 + 이미지 스타일
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR&display=swap');
 html, body, [class*="css"] {
     font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+}
+img {
+    border-radius: 12px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.15);
 }
 </style>
 """, unsafe_allow_html=True)
@@ -41,25 +45,20 @@ EC_MAP = {
 }
 
 # ======================================================
-# 한글 파일명 안전 탐색 함수 (최종 안정판)
+# 한글 파일명 안전 탐색 함수
 # ======================================================
 def find_file_containing(directory: Path, keywords: list, suffix: str):
     for p in directory.iterdir():
         if not p.is_file():
             continue
-
         if not p.name.lower().endswith(suffix):
             continue
 
         name_nfc = unicodedata.normalize("NFC", p.name)
         name_nfd = unicodedata.normalize("NFD", p.name)
 
-        if all(
-            (k in name_nfc) or (k in name_nfd)
-            for k in keywords
-        ):
+        if all((k in name_nfc) or (k in name_nfd) for k in keywords):
             return p
-
     return None
 
 # ======================================================
@@ -68,21 +67,17 @@ def find_file_containing(directory: Path, keywords: list, suffix: str):
 @st.cache_data
 def load_environment_data():
     data = {}
-
     for school in EC_MAP.keys():
         file_path = find_file_containing(
             DATA_DIR,
             keywords=[school, "환경데이터"],
             suffix=".csv"
         )
-
         if file_path is None:
             continue
-
         df = pd.read_csv(file_path)
         df["학교"] = school
         data[school] = df
-
     return data
 
 @st.cache_data
@@ -92,7 +87,6 @@ def load_growth_data():
         keywords=["생육결과"],
         suffix=".xlsx"
     )
-
     if xlsx_path is None:
         return None
 
@@ -106,25 +100,12 @@ def load_growth_data():
 
     return pd.concat(result, ignore_index=True)
 
-@st.cache_data
-def load_images():
-    if not IMAGE_DIR.exists():
-        return []
-
-    imgs = []
-    for p in IMAGE_DIR.iterdir():
-        if p.suffix.lower() in [".png", ".jpg", ".jpeg"]:
-            imgs.append(p)
-
-    return imgs
-
 # ======================================================
 # 데이터 로딩 UI
 # ======================================================
-with st.spinner("데이터를 불러오는 중입니다..."):
+with st.spinner("데이터 로딩 중..."):
     env_data = load_environment_data()
     growth_df = load_growth_data()
-    image_files = load_images()
 
 if not env_data or growth_df is None:
     st.error("❌ data 폴더에서 필요한 파일을 찾을 수 없습니다.")
@@ -139,11 +120,15 @@ school_option = st.sidebar.selectbox(
     ["전체"] + list(EC_MAP.keys())
 )
 
-# 디버깅용 파일 목록 (Cloud 확인용)
+# 🔥 실습용 이미지 (아무 데나 넣기)
 st.sidebar.divider()
-st.sidebar.write("📁 data 폴더 파일:")
-for p in DATA_DIR.iterdir():
-    st.sidebar.write(p.name)
+st.sidebar.subheader("🧪 실습용 이미지")
+
+practice_img = IMAGE_DIR / "practice_image.png"
+if practice_img.exists():
+    st.sidebar.image(practice_img, use_container_width=True)
+else:
+    st.sidebar.info("images/practice_image.png 파일을 추가하세요.")
 
 # ======================================================
 # 제목
@@ -160,7 +145,7 @@ tab1, tab2, tab3 = st.tabs([
 ])
 
 # ======================================================
-# TAB 1
+# TAB 1: 평균 환경 데이터
 # ======================================================
 with tab1:
     st.subheader("학교별 평균 환경 데이터")
@@ -189,17 +174,11 @@ with tab1:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-    if image_files:
-        st.divider()
-        st.subheader("📷 참고 그래프 / 표 이미지")
-        for img in image_files:
-            st.image(img, caption=img.name, use_container_width=True)
-
 # ======================================================
-# TAB 2
+# TAB 2: EC값에 따른 성장량
 # ======================================================
 with tab2:
-    st.subheader("EC값에 따른 성장량 비교")
+    st.subheader("EC값에 따른 지상부 성장")
 
     df = growth_df.copy()
     if school_option != "전체":
@@ -219,11 +198,10 @@ with tab2:
     )
 
     st.plotly_chart(fig, use_container_width=True)
-
-    st.info("✅ 하늘고 (EC 2.0) 조건에서 생육이 가장 안정적으로 나타남")
+    st.info("✅ 하늘고(EC 2.0) 조건에서 생육이 가장 안정적으로 나타남")
 
 # ======================================================
-# TAB 3
+# TAB 3: 지상부 vs 지하부
 # ======================================================
 with tab3:
     st.subheader("지상부 길이 vs 지하부 길이")
